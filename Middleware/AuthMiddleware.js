@@ -1,5 +1,4 @@
-// Middleware/AuthMiddleware.js
-const admin = require('../firebaseAdmin');
+const { auth } = require('../firebaseAdmin');
 
 const verifyAdmin = async (req, res, next) => {
   try {
@@ -13,7 +12,7 @@ const verifyAdmin = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
+    const decodedToken = await auth.verifyIdToken(token);
 
     // For now, assume nke_admin@gmail.com is the admin
     if (decodedToken.email !== 'nke_admin@gmail.com') {

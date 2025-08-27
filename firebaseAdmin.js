@@ -1,23 +1,16 @@
-// // firebaseAdmin.js
-// const admin = require('firebase-admin');
-// const serviceAccount = require('./config/serviceAccountkKey.json');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getDatabase, ServerValue } = require('firebase-admin/database');
+const serviceAccount = require('./config/serviceAccountkKey.json');
 
-// admin.initializeApp({
-//   credential: admin.credential.cert(serviceAccount),
-//   databaseURL: process.env.FIREBASE_DATABASE_URL,
-// });
-
-// console.log('Firebase Admin SDK initialized successfully');
-// module.exports = admin;
-const admin = require('firebase-admin');
-
-// Parse service account key from environment variable
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+const app = initializeApp({
+  credential: cert(serviceAccount),
   databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
 
+const db = getDatabase(app);
+const auth = getAuth(app);
+
 console.log('Firebase Admin SDK initialized successfully');
-module.exports = admin;
+
+module.exports = { app, auth, db, ServerValue };

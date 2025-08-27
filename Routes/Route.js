@@ -20,7 +20,10 @@
 const express = require('express');
 const router = express.Router();
 const AuthController = require('../controller/AuthController');
-const { verifyAdmin } = require('../Middleware/AuthMiddleware'); // Destructure verifyAdmin
+const { verifyAdmin } = require('../Middleware/AuthMiddleware'); 
+const EnquiryController=require('../controller/EnquiryController')
+const GalleryController=require('../controller/GalleryController')
+const upload=require('../Middleware/MulterMiddleware')
 
 // Admin login route
 router.post('/login', AuthController.loginAdmin);
@@ -32,5 +35,14 @@ router.get('/admin/dashboard', verifyAdmin, (req, res) => {
     user: req.user,
   });
 });
+
+router.post('/enquiry', EnquiryController.submitEnquiry); // Public route for users
+router.get('/admin/enquiries', verifyAdmin, EnquiryController.getEnquiries); // Protected route for admins
+router.put('/admin/enquiries/:id/status', verifyAdmin, EnquiryController.updateEnquiryStatus)
+
+router.post('/admin/gallery',upload.single('image'), verifyAdmin, GalleryController.uploadImage);
+router.get('/admin/gallery', verifyAdmin, GalleryController.getImages);
+router.delete('/admin/gallery/:id', verifyAdmin, GalleryController.deleteImage);
+router.get('/uploads/:filename', GalleryController.serveImage)
 
 module.exports = router;
