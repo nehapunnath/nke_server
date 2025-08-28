@@ -1,31 +1,13 @@
-// const express = require('express');
-// const router = express.Router();
-// const AuthController = require('../controller/AuthController');
-// const verifyAdmin = require('../Middleware/AuthMiddleware'); 
-
-// // Admin login route
-// router.post('/login', AuthController.loginAdmin);
-
-// router.post('/verify', AuthController.verifyToken)
-
-// router.get('/admin/dashboard', verifyAdmin);
-
-
-
-
-// // Add more protected routes as needed
-// module.exports = router;
-
-// Routes/Route.js
 const express = require('express');
 const router = express.Router();
 const AuthController = require('../controller/AuthController');
-const { verifyAdmin } = require('../Middleware/AuthMiddleware'); 
-const EnquiryController=require('../controller/EnquiryController')
-const GalleryController=require('../controller/GalleryController')
-const upload=require('../Middleware/MulterMiddleware')
+const { verifyAdmin } = require('../Middleware/AuthMiddleware');
+const EnquiryController = require('../controller/EnquiryController');
+const GalleryController = require('../controller/GalleryController');
+const { uploadImages, uploadCategoryCatalogue, handleUploadError } = require('../Middleware/MulterMiddleware');
+const ProductController = require('../controller/ProductController');
 
-// Admin login route
+// Auth Routes
 router.post('/login', AuthController.loginAdmin);
 router.post('/verify', AuthController.verifyToken);
 router.get('/admin/dashboard', verifyAdmin, (req, res) => {
@@ -36,13 +18,51 @@ router.get('/admin/dashboard', verifyAdmin, (req, res) => {
   });
 });
 
-router.post('/enquiry', EnquiryController.submitEnquiry); // Public route for users
-router.get('/admin/enquiries', verifyAdmin, EnquiryController.getEnquiries); // Protected route for admins
-router.put('/admin/enquiries/:id/status', verifyAdmin, EnquiryController.updateEnquiryStatus)
+// Enquiry Routes
+router.post('/enquiry', EnquiryController.submitEnquiry);
+router.get('/admin/enquiries', verifyAdmin, EnquiryController.getEnquiries);
+router.put('/admin/enquiries/:id/status', verifyAdmin, EnquiryController.updateEnquiryStatus);
 
-router.post('/admin/gallery',upload.single('image'), verifyAdmin, GalleryController.uploadImage);
-router.get('/admin/gallery', verifyAdmin, GalleryController.getImages);
-router.delete('/admin/gallery/:id', verifyAdmin, GalleryController.deleteImage);
-router.get('/uploads/:filename', GalleryController.serveImage)
+// Product Routes
+router.post('/admin/products/add', 
+  verifyAdmin,
+  uploadImages,
+  handleUploadError,
+  ProductController.addProduct
+);
+
+// Category Catalogue Routes
+router.post('/admin/category-catalogue/upload', 
+  verifyAdmin,
+  uploadCategoryCatalogue,
+  handleUploadError,
+  ProductController.uploadCategoryCatalogue
+);
+
+router.get('/category-catalogue/:category', 
+  ProductController.getCategoryCatalogue
+);
+
+router.delete('/admin/category-catalogue/:category', 
+  verifyAdmin,
+  ProductController.deleteCategoryCatalogue
+);
+
+router.get('/admin/products/all', ProductController.getAllProducts);
+router.get('/admin/products/:id', ProductController.getProductById);
+router.put('/admin/products-edit/:id', 
+  verifyAdmin,
+  uploadImages,
+  handleUploadError,
+  ProductController.updateProduct
+);
+router.delete('/admin/products-del/:id', verifyAdmin, ProductController.deleteProduct);
+router.get('/category/:category', ProductController.getProductsByCategory);
+
+router.get('/products', ProductController.getProductsForUsers);
+
+
+
+
 
 module.exports = router;

@@ -13,6 +13,8 @@ app.use(express.json());
 // Routes
 app.use('/', routes);
 
+
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
 // Start server
