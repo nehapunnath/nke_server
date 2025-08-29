@@ -1,7 +1,6 @@
 const { Product, CategoryCatalogue } = require('../Model/ProductModel');
-const { db } = require('../firebaseAdmin');
-const fs = require('fs');
-const path = require('path');
+const { db, storage } = require('../firebaseAdmin');
+const path = require('path'); // Only needed for path.extname
 
 class ProductController {
   static async addProduct(req, res) {
@@ -18,6 +17,27 @@ class ProductController {
 
       const filteredSpecs = parsedSpecs.filter(spec => spec && spec.trim() !== '');
 
+      // Upload images to Firebase Storage
+      const images = await Promise.all(imageFiles.map(async (img) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const filename = `image-${uniqueSuffix}${path.extname(img.originalname)}`;
+        const fileRef = storage.bucket().file(`images/${filename}`);
+        await fileRef.save(img.buffer, {
+          metadata: { contentType: img.mimetype },
+          public: true,
+        });
+        const [url] = await fileRef.getSignedUrl({
+          action: 'read',
+          expires: '03-09-2491', // Long-term URL
+        });
+        return {
+          filename,
+          originalName: img.originalname,
+          path: `images/${filename}`,
+          url,
+        };
+      }));
+
       const productData = {
         name,
         brand,
@@ -28,28 +48,22 @@ class ProductController {
         stockStatus,
         description,
         specs: filteredSpecs,
-        images: imageFiles.map(img => ({
-          filename: img.filename,
-          originalName: img.originalname,
-          path: `/Uploads/images/${img.filename}`,
-          url: `${process.env.BASE_URL || 'http://localhost:5000'}/Uploads/images/${img.filename}`
-        })),
+        images,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
 
       const product = new Product(productData);
       const validationErrors = product.validate();
       if (validationErrors.length > 0) {
-        imageFiles.forEach(file => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
+        // Clean up uploaded images if validation fails
+        await Promise.all(images.map(async (img) => {
+          await storage.bucket().file(img.path).delete().catch(() => {});
+        }));
         return res.status(400).json({
           success: false,
           message: 'Validation failed',
-          errors: validationErrors
+          errors: validationErrors,
         });
       }
 
@@ -62,21 +76,20 @@ class ProductController {
         success: true,
         message: 'Product added successfully',
         productId: productId,
-        product: product.toJSON()
+        product: product.toJSON(),
       });
     } catch (error) {
       console.error('Error adding product:', error);
       if (req.files) {
-        req.files.forEach(file => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
+        await Promise.all(req.files.map(async (img) => {
+          const filename = `image-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(img.originalname)}`;
+          await storage.bucket().file(`images/${filename}`).delete().catch(() => {});
+        }));
       }
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -87,42 +100,54 @@ class ProductController {
       const catalogueFile = req.file || null;
 
       if (!category) {
-        if (catalogueFile && fs.existsSync(catalogueFile.path)) {
-          fs.unlinkSync(catalogueFile.path);
+        if (catalogueFile) {
+          const filename = `catalogue-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(catalogueFile.originalname)}`;
+          await storage.bucket().file(`catalogues/${filename}`).delete().catch(() => {});
         }
         return res.status(400).json({
           success: false,
-          message: 'Category is required'
+          message: 'Category is required',
         });
       }
 
       if (!catalogueFile) {
         return res.status(400).json({
           success: false,
-          message: 'Catalogue file is required'
+          message: 'Catalogue file is required',
         });
       }
+
+      // Upload catalogue to Firebase Storage
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const filename = `catalogue-${uniqueSuffix}${path.extname(catalogueFile.originalname)}`;
+      const fileRef = storage.bucket().file(`catalogues/${filename}`);
+      await fileRef.save(catalogueFile.buffer, {
+        metadata: { contentType: catalogueFile.mimetype },
+        public: true,
+      });
+      const [url] = await fileRef.getSignedUrl({
+        action: 'read',
+        expires: '03-09-2491', // Long-term URL
+      });
 
       const catalogueData = {
         category,
         catalogue: {
-          filename: catalogueFile.filename,
+          filename,
           originalName: catalogueFile.originalname,
-          path: `/Uploads/catalogues/${catalogueFile.filename}`,
-          url: `${process.env.BASE_URL || 'http://localhost:5000'}/Uploads/catalogues/${catalogueFile.filename}`
-        }
+          path: `catalogues/${filename}`,
+          url,
+        },
       };
 
       const categoryCatalogue = new CategoryCatalogue(catalogueData);
       const validationErrors = categoryCatalogue.validate();
       if (validationErrors.length > 0) {
-        if (catalogueFile && fs.existsSync(catalogueFile.path)) {
-          fs.unlinkSync(catalogueFile.path);
-        }
+        await fileRef.delete().catch(() => {});
         return res.status(400).json({
           success: false,
           message: 'Validation failed',
-          errors: validationErrors
+          errors: validationErrors,
         });
       }
 
@@ -133,10 +158,7 @@ class ProductController {
       if (existingCatalogues) {
         const existingCatalogue = Object.values(existingCatalogues)[0];
         if (existingCatalogue.catalogue && existingCatalogue.catalogue.path) {
-          const fullPath = path.join(__dirname, '..', existingCatalogue.catalogue.path);
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
+          await storage.bucket().file(existingCatalogue.catalogue.path).delete().catch(() => {});
         }
         const catalogueKey = Object.keys(existingCatalogues)[0];
         await cataloguesRef.child(catalogueKey).remove();
@@ -149,17 +171,18 @@ class ProductController {
         success: true,
         message: 'Category catalogue uploaded successfully',
         catalogueId: newCatalogueRef.key,
-        catalogue: categoryCatalogue.toJSON()
+        catalogue: categoryCatalogue.toJSON(),
       });
     } catch (error) {
       console.error('Error uploading category catalogue:', error);
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
+      if (req.file) {
+        const filename = `catalogue-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(req.file.originalname)}`;
+        await storage.bucket().file(`catalogues/${filename}`).delete().catch(() => {});
       }
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -168,18 +191,18 @@ class ProductController {
     try {
       const { category } = req.params;
       const cataloguesRef = db.ref('categoryCatalogues');
-      
+
       cataloguesRef.orderByChild('category').equalTo(category).once('value', (snapshot) => {
         const catalogue = snapshot.val();
         if (!catalogue) {
           return res.status(404).json({
             success: false,
-            message: 'Catalogue not found for this category'
+            message: 'Catalogue not found for this category',
           });
         }
         res.status(200).json({
           success: true,
-          catalogue: Object.values(catalogue)[0]
+          catalogue: Object.values(catalogue)[0],
         });
       });
     } catch (error) {
@@ -187,7 +210,7 @@ class ProductController {
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -196,14 +219,14 @@ class ProductController {
     try {
       const { category } = req.params;
       const cataloguesRef = db.ref('categoryCatalogues');
-      
+
       const snapshot = await cataloguesRef.orderByChild('category').equalTo(category).once('value');
       const catalogue = snapshot.val();
-      
+
       if (!catalogue) {
         return res.status(404).json({
           success: false,
-          message: 'Catalogue not found for this category'
+          message: 'Catalogue not found for this category',
         });
       }
 
@@ -211,24 +234,21 @@ class ProductController {
       const catalogueData = Object.values(catalogue)[0];
 
       if (catalogueData.catalogue && catalogueData.catalogue.path) {
-        const fullPath = path.join(__dirname, '..', catalogueData.catalogue.path);
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-        }
+        await storage.bucket().file(catalogueData.catalogue.path).delete().catch(() => {});
       }
 
       await cataloguesRef.child(catalogueKey).remove();
 
       res.status(200).json({
         success: true,
-        message: 'Category catalogue deleted successfully'
+        message: 'Category catalogue deleted successfully',
       });
     } catch (error) {
       console.error('Error deleting category catalogue:', error);
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -240,7 +260,7 @@ class ProductController {
         const products = snapshot.val();
         res.status(200).json({
           success: true,
-          products: products || {}
+          products: products || {},
         });
       });
     } catch (error) {
@@ -248,7 +268,7 @@ class ProductController {
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -262,12 +282,12 @@ class ProductController {
         if (!product) {
           return res.status(404).json({
             success: false,
-            message: 'Product not found'
+            message: 'Product not found',
           });
         }
         res.status(200).json({
           success: true,
-          product: product
+          product: product,
         });
       });
     } catch (error) {
@@ -275,7 +295,7 @@ class ProductController {
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -286,22 +306,18 @@ class ProductController {
       const imageFiles = req.files || [];
       const { name, brand, category, price, modelNo, warranty, stockStatus, description, specs, existingImages } = req.body;
 
-      console.log('req.body:', req.body);
-      console.log('req.files:', req.files);
-
       const productRef = db.ref(`products/${id}`);
       const snapshot = await productRef.once('value');
       if (!snapshot.exists()) {
         if (imageFiles) {
-          imageFiles.forEach(file => {
-            if (fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          });
+          await Promise.all(imageFiles.map(async (img) => {
+            const filename = `image-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(img.originalname)}`;
+            await storage.bucket().file(`images/${filename}`).delete().catch(() => {});
+          }));
         }
         return res.status(404).json({
           success: false,
-          message: 'Product not found'
+          message: 'Product not found',
         });
       }
 
@@ -321,11 +337,25 @@ class ProductController {
 
       const filteredSpecs = parsedSpecs.filter(spec => spec && spec.trim() !== '');
 
-      const newImages = imageFiles.map(img => ({
-        filename: img.filename,
-        originalName: img.originalname,
-        path: `/Uploads/images/${img.filename}`,
-        url: `${process.env.BASE_URL || 'http://localhost:5000'}/Uploads/images/${img.filename}`
+      // Upload new images to Firebase Storage
+      const newImages = await Promise.all(imageFiles.map(async (img) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const filename = `image-${uniqueSuffix}${path.extname(img.originalname)}`;
+        const fileRef = storage.bucket().file(`images/${filename}`);
+        await fileRef.save(img.buffer, {
+          metadata: { contentType: img.mimetype },
+          public: true,
+        });
+        const [url] = await fileRef.getSignedUrl({
+          action: 'read',
+          expires: '03-09-2491',
+        });
+        return {
+          filename,
+          originalName: img.originalname,
+          path: `images/${filename}`,
+          url,
+        };
       }));
 
       const allImages = [...parsedExistingImages, ...newImages];
@@ -341,23 +371,22 @@ class ProductController {
         description,
         specs: filteredSpecs,
         images: allImages,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
 
       const product = new Product(updates);
       const validationErrors = product.validate();
       if (validationErrors.length > 0) {
         if (imageFiles) {
-          imageFiles.forEach(file => {
-            if (fs.existsSync(file.path)) {
-              fs.unlinkSync(file.path);
-            }
-          });
+          await Promise.all(imageFiles.map(async (img) => {
+            const filename = `image-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(img.originalname)}`;
+            await storage.bucket().file(`images/${filename}`).delete().catch(() => {});
+          }));
         }
         return res.status(400).json({
           success: false,
           message: 'Validation failed',
-          errors: validationErrors
+          errors: validationErrors,
         });
       }
 
@@ -367,33 +396,29 @@ class ProductController {
         const imagesToDelete = existingProduct.images.filter(
           oldImg => !parsedExistingImages.some(newImg => newImg.filename === oldImg.filename)
         );
-        imagesToDelete.forEach(img => {
-          const fullPath = path.join(__dirname, '..', img.path);
-          if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-          }
-        });
+        await Promise.all(imagesToDelete.map(async (img) => {
+          await storage.bucket().file(img.path).delete().catch(() => {});
+        }));
       }
 
       await productRef.update(updates);
 
       res.status(200).json({
         success: true,
-        message: 'Product updated successfully'
+        message: 'Product updated successfully',
       });
     } catch (error) {
       console.error('Error updating product:', error);
       if (req.files) {
-        req.files.forEach(file => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
+        await Promise.all(req.files.map(async (img) => {
+          const filename = `image-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(img.originalname)}`;
+          await storage.bucket().file(`images/${filename}`).delete().catch(() => {});
+        }));
       }
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -402,39 +427,36 @@ class ProductController {
     try {
       const { id } = req.params;
       const productRef = db.ref(`products/${id}`);
-      
+
       const snapshot = await productRef.once('value');
       if (!snapshot.exists()) {
         return res.status(404).json({
           success: false,
-          message: 'Product not found'
+          message: 'Product not found',
         });
       }
-      
+
       const product = snapshot.val();
       if (product.images && Array.isArray(product.images)) {
-        product.images.forEach(image => {
+        await Promise.all(product.images.map(async (image) => {
           if (image.path) {
-            const fullPath = path.join(__dirname, '..', image.path);
-            if (fs.existsSync(fullPath)) {
-              fs.unlinkSync(fullPath);
-            }
+            await storage.bucket().file(image.path).delete().catch(() => {});
           }
-        });
+        }));
       }
-      
+
       await productRef.remove();
-      
+
       res.status(200).json({
         success: true,
-        message: 'Product deleted successfully'
+        message: 'Product deleted successfully',
       });
     } catch (error) {
       console.error('Error deleting product:', error);
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -443,12 +465,12 @@ class ProductController {
     try {
       const { category } = req.params;
       const productsRef = db.ref('products');
-      
+
       productsRef.orderByChild('category').equalTo(category).once('value', (snapshot) => {
         const products = snapshot.val();
         res.status(200).json({
           success: true,
-          products: products || {}
+          products: products || {},
         });
       });
     } catch (error) {
@@ -456,26 +478,22 @@ class ProductController {
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
-  
 
   static async getProductsForUsers(req, res) {
     try {
       const productsRef = db.ref('products');
       const cataloguesRef = db.ref('categoryCatalogues');
 
-      // Fetch all products
       const productsSnapshot = await productsRef.once('value');
       const productsData = productsSnapshot.val() || {};
 
-      // Fetch all category catalogues
       const cataloguesSnapshot = await cataloguesRef.once('value');
       const cataloguesData = cataloguesSnapshot.val() || {};
 
-      // Define categories (matching frontend)
       const categories = [
         'Desktops',
         'Laptops',
@@ -485,10 +503,9 @@ class ProductController {
         'Scanners',
         'CCTV Systems',
         'UPS Systems',
-        'Accessories'
+        'Accessories',
       ];
 
-      // Group products by category
       const productCategories = categories.map((category, index) => {
         const categoryProducts = Object.keys(productsData)
           .filter(id => productsData[id].category === category)
@@ -496,10 +513,9 @@ class ProductController {
             id,
             name: productsData[id].name,
             image: productsData[id].images && productsData[id].images[0]?.url,
-            specs: productsData[id].specs?.join(', ') || ''
+            specs: productsData[id].specs?.join(', ') || '',
           }));
 
-        // Find catalogue for this category
         const catalogueEntry = Object.values(cataloguesData).find(cat => cat.category === category);
         const catalogueUrl = catalogueEntry ? catalogueEntry.catalogue?.url : null;
 
@@ -507,24 +523,23 @@ class ProductController {
           id: index + 1,
           name: category,
           catalogue: catalogueUrl,
-          items: categoryProducts
+          items: categoryProducts,
         };
       }).filter(category => category.items.length > 0);
 
       res.status(200).json({
         success: true,
-        productCategories
+        productCategories,
       });
     } catch (error) {
       console.error('Error fetching products for users:', error);
       res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: error.message
+        error: error.message,
       });
     }
   }
-
 }
 
 module.exports = ProductController;
