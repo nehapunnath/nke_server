@@ -6,6 +6,8 @@ const EnquiryController = require('../controller/EnquiryController');
 const GalleryController = require('../controller/GalleryController');
 const { uploadImages, uploadCategoryCatalogue, handleUploadError } = require('../Middleware/MulterMiddleware');
 const ProductController = require('../controller/ProductController');
+const clientsController = require('../controller/ClientsController');
+const partnersController=require('../controller/PartnersController')
 
 // Auth Routes
 router.post('/login', AuthController.loginAdmin);
@@ -61,8 +63,36 @@ router.get('/category/:category', ProductController.getProductsByCategory);
 
 router.get('/products', ProductController.getProductsForUsers);
 
+router.post('/admin/gallery', 
+  verifyAdmin,
+  uploadImages,
+  handleUploadError,
+  GalleryController.addImages
+);
 
+router.get('/admin/gallery', 
+  
+  GalleryController.getImages
+);
 
+router.put('/admin/gallery/:id', 
+  verifyAdmin,
+  uploadImages,
+  handleUploadError,
+  GalleryController.updateImage
+);
+
+router.delete('/admin/gallery/:id', 
+  verifyAdmin,
+  GalleryController.deleteImage
+);
+router.post('/admin/clients', uploadImages, handleUploadError, clientsController.addClients);
+router.get('/admin/clients',  clientsController.getClients);
+router.delete('/admin/clients/:id',  clientsController.deleteClient);
+router.post('/admin/partners',  uploadImages, handleUploadError, partnersController.addPartners);
+router.get('/admin/partners',  partnersController.getPartners);
+router.delete('/admin/partners/:id',  partnersController.deletePartner);
+router.get('/partners',  partnersController.getPartners);
 
 
 module.exports = router;
