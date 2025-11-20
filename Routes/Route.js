@@ -96,3 +96,5 @@ router.get('/partners',  partnersController.getPartners);
 
 
 module.exports = router;
+
+
