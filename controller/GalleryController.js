@@ -7,7 +7,7 @@ class GalleryController {
     try {
       const imageFiles = req.files || [];
       const names = req.body.names || []; 
-      console.log('Received files:', imageFiles, 'Names:', names); // Debug log
+      console.log('Received files:', imageFiles, 'Names:', names); 
       if (!imageFiles.length) {
         return res.status(400).json({
           success: false,
@@ -20,7 +20,7 @@ class GalleryController {
           console.log('Uploading file:', file.originalname);
           const uploadData = await galleryModel.uploadToStorage(file);
           const imageData = {
-            name: names[index] || file.originalname, // Use custom name if provided
+            name: names[index] || file.originalname, 
             size: (file.size / 1024 / 1024).toFixed(1) + ' MB',
             date: new Date().toLocaleDateString('en-US', {
               year: 'numeric',
